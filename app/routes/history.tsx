@@ -1,4 +1,4 @@
-import { useReducer, useEffect, useCallback } from 'react';
+import { useReducer, useEffect, useCallback, useState } from 'react';
 import {
   data,
   useLoaderData,
@@ -12,6 +12,15 @@ import { requireAuth } from '~/lib/auth.server';
 import { resolveActiveMonth } from '~/lib/month.server';
 import { selectedMonthCookie } from '~/lib/cookies.server';
 import type { ExpenseEntry } from '~/lib/types';
+import { INCOME_CATEGORIES, type Category } from '~/lib/constants';
+
+function formatCurrency(amount: number): string {
+  return new Intl.NumberFormat('id-ID', {
+    style: 'currency',
+    currency: 'IDR',
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
 import { ExpenseCard } from '~/components/expense-card';
 import { MonthSelector } from '~/components/month-selector';
 import { getPendingCount } from '~/lib/offline-queue';
@@ -23,6 +32,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const url = new URL(request.url);
   const monthParam = url.searchParams.get('month');
+  const viewParam = url.searchParams.get('view');
   const cookieMonth = await selectedMonthCookie.parse(
     request.headers.get('Cookie'),
   );
@@ -31,11 +41,15 @@ export async function loader({ request }: Route.LoaderArgs) {
     monthParam ?? cookieMonth,
   );
 
+  const view =
+    viewParam === 'dashboard' ? 'dashboard' : 'history';
+
   if (offline) {
     return data({
       entries: [] as ExpenseEntry[],
       activeMonth,
       months,
+      view,
       offline: true,
     });
   }
@@ -52,12 +66,13 @@ export async function loader({ request }: Route.LoaderArgs) {
       date: row[5] ?? '',
       source: row[6] ?? '',
     }));
-    return data({ entries, activeMonth, months });
+    return data({ entries, activeMonth, months, view });
   } catch {
     return data({
       entries: [] as ExpenseEntry[],
       activeMonth,
       months,
+      view,
       error: 'Failed to load expenses',
     });
   }
@@ -72,6 +87,10 @@ export default function History() {
   const entries = loaderData.entries as ExpenseEntry[];
   const activeMonth = loaderData.activeMonth as string;
   const months = loaderData.months as string[];
+  const view =
+    'view' in loaderData && loaderData.view === 'dashboard'
+      ? 'dashboard'
+      : 'history';
   const navigate = useNavigate();
 
   type State = {
@@ -107,6 +126,9 @@ export default function History() {
     },
   );
   const { sourceFilter, pendingCount, isOnline, isSyncing, cachedEntries } = state;
+
+  const [activeCategory, setActiveCategory] =
+    useState<string | null>(null);
 
   const refreshPendingCount = useCallback(async () => {
     try {
@@ -184,7 +206,9 @@ export default function History() {
   }, [isOnline, pendingCount, isSyncing, refreshPendingCount]);
 
   function handleMonthChange(month: string) {
-    navigate(`/history?month=${month}`);
+    const viewQuery =
+      view === 'dashboard' ? '&view=dashboard' : '';
+    navigate(`/history?month=${month}${viewQuery}`);
   }
 
   const displayEntries = isOffline && cachedEntries.length > 0 ? cachedEntries : entries;
@@ -193,6 +217,233 @@ export default function History() {
     sourceFilter === 'All'
       ? displayEntries
       : displayEntries.filter((e) => e.source === sourceFilter);
+
+  const isDashboardView = view === 'dashboard';
+
+  let totalIncome = 0;
+  let totalExpense = 0;
+  const categoryMap = new Map<string, { total: number; count: number }>();
+
+  if (isDashboardView) {
+    for (const e of filtered) {
+      const isIncome = INCOME_CATEGORIES.includes(
+        e.category as Category & (typeof INCOME_CATEGORIES)[number],
+      );
+      const amount = e.amount || 0;
+      if (isIncome) totalIncome += amount;
+      else totalExpense += amount;
+
+      const catKey = e.category || (isIncome ? 'Income' : 'Other');
+      const existing = categoryMap.get(catKey) ?? {
+        total: 0,
+        count: 0,
+      };
+      existing.total += amount;
+      existing.count += 1;
+      categoryMap.set(catKey, existing);
+    }
+  }
+
+  const categorySummary = isDashboardView
+    ? Array.from(categoryMap.entries())
+        .map(([category, value]) => ({ category, ...value }))
+        .sort((a, b) => b.total - a.total)
+    : [];
+
+  const maxCategoryTotal = categorySummary[0]?.total ?? 0;
+
+  const transactionsInActiveCategory =
+    isDashboardView && activeCategory
+      ? filtered.filter((e) => e.category === activeCategory)
+      : [];
+
+  const balance = totalIncome - totalExpense;
+
+  if (isDashboardView) {
+    return (
+      <main className="mx-auto flex min-h-screen max-w-md flex-col bg-white">
+        <header className="flex justify-between items-center shrink-0 px-4 pt-[max(1.5rem,env(safe-area-inset-top))] pb-2">
+          <h1 className="text-xl font-bold tracking-tight text-slate-900">
+            Dashboard
+          </h1>
+          <div className="mt-2">
+            <MonthSelector
+              months={months}
+              activeMonth={activeMonth}
+              onChange={handleMonthChange}
+            />
+          </div>
+        </header>
+
+        {isOffline && (
+          <div className="mx-4 mb-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-center text-sm text-amber-800">
+            You're offline — dashboard data is unavailable until reconnected.
+          </div>
+        )}
+
+        <section className="px-4 pb-2">
+          <div className="grid grid-cols-4 gap-1 rounded-xl bg-slate-100 p-1">
+            {['All', 'Suami', 'Istri', 'Together'].map((s) => (
+              <button
+                key={s}
+                onClick={() => {
+                  dispatch({ type: 'SET_SOURCE_FILTER', filter: s });
+                  setActiveCategory(null);
+                }}
+                className={`rounded-lg py-2 text-center text-xs font-medium transition-colors ${
+                  sourceFilter === s
+                    ? 'bg-slate-900 text-white'
+                    : 'text-slate-600'
+                }`}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section className="px-4 pb-4 grid grid-cols-2 gap-3">
+          <div className="col-span-1 rounded-2xl bg-emerald-50 px-4 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+              Total Pemasukan
+            </p>
+            <p className="mt-1 text-lg font-bold text-emerald-900">
+              {formatCurrency(totalIncome)}
+            </p>
+          </div>
+          <div className="col-span-1 rounded-2xl bg-rose-50 px-4 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-rose-700">
+              Total Pengeluaran
+            </p>
+            <p className="mt-1 text-lg font-bold text-rose-900">
+              {formatCurrency(totalExpense)}
+            </p>
+          </div>
+          <div className="col-span-2 rounded-2xl bg-slate-900 px-4 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-200">
+              Sisa Saldo
+            </p>
+            <p className="mt-1 text-xl font-bold text-white">
+              {formatCurrency(balance)}
+            </p>
+          </div>
+        </section>
+
+        <section className="flex-1 rounded-t-3xl bg-slate-50 px-4 pt-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              By Category
+            </h2>
+            {filtered.length > 0 && (
+              <span className="text-[11px] text-slate-500">
+                {filtered.length} transaksi
+              </span>
+            )}
+          </div>
+
+          {error && (
+            <p className="mb-2 text-sm text-red-600">{error}</p>
+          )}
+
+          {categorySummary.length === 0 && !error ? (
+            <p className="text-sm text-slate-500">
+              Belum ada transaksi di bulan ini untuk filter yang dipilih.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {categorySummary.map((c) => {
+                const ratio =
+                  maxCategoryTotal > 0 ? c.total / maxCategoryTotal : 0;
+                const isActive = activeCategory === c.category;
+                return (
+                  <button
+                    key={c.category}
+                    type="button"
+                    onClick={() =>
+                      setActiveCategory(
+                        isActive ? null : c.category,
+                      )
+                    }
+                    className={`w-full rounded-2xl border px-3 py-2 text-left transition-colors ${
+                      isActive
+                        ? 'border-slate-900 bg-white'
+                        : 'border-slate-100 bg-white'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-semibold text-slate-900">
+                          {c.category}
+                        </p>
+                        <p className="text-[11px] text-slate-500">
+                          {c.count} transaksi
+                        </p>
+                      </div>
+                      <p className="text-xs font-semibold text-slate-900">
+                        {formatCurrency(c.total)}
+                      </p>
+                    </div>
+                    <div className="mt-2 h-1.5 w-full rounded-full bg-slate-100">
+                      <div
+                        className="h-1.5 rounded-full bg-slate-900"
+                        style={{ width: `${ratio * 100 || 4}%` }}
+                      />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {activeCategory &&
+            transactionsInActiveCategory.length > 0 && (
+              <div className="mt-4 rounded-2xl bg-white p-3 shadow-sm">
+                <div className="mb-2 flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-semibold text-slate-900">
+                      {activeCategory}
+                    </p>
+                    <p className="text-[11px] text-slate-500">
+                      {transactionsInActiveCategory.length} transaksi
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveCategory(null)}
+                    className="text-[11px] font-medium text-slate-500 underline"
+                  >
+                    Close
+                  </button>
+                </div>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {transactionsInActiveCategory.map((t, i) => (
+                    <div
+                      key={`${t.timestamp}-${i}`}
+                      className="rounded-xl border border-slate-100 px-3 py-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-semibold text-slate-900">
+                          {t.item}
+                        </p>
+                        <p className="text-xs font-semibold text-slate-900">
+                          {formatCurrency(t.amount)}
+                        </p>
+                      </div>
+                      <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500">
+                        <span>{t.date}</span>
+                        <span>
+                          {t.source} · {t.category}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col bg-white">

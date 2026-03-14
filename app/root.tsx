@@ -9,6 +9,8 @@ import {
   ScrollRestoration,
   useLoaderData,
   useRouteError,
+  Link,
+  useLocation,
 } from 'react-router';
 
 import type { Route } from './+types/root';
@@ -128,6 +130,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   const { isAuthenticated } = useLoaderData<typeof loader>();
+  const location = useLocation();
+  const searchParams = new URLSearchParams(location.search);
+  const isOnHistory =
+    location.pathname === '/history' &&
+    searchParams.get('view') !== 'dashboard';
+  const isOnDashboard =
+    location.pathname === '/history' &&
+    searchParams.get('view') === 'dashboard';
 
   return (
     <>
@@ -177,31 +187,50 @@ export default function App() {
               </>
             )}
           </NavLink>
-          <NavLink
+          <Link
             to="/history"
-            className={({ isActive }) =>
-              `flex flex-col items-center gap-0.5 px-4 py-2 text-xs ${isActive ? 'font-bold text-slate-900' : 'text-slate-400'}`
-            }
+            className={`flex flex-col items-center gap-0.5 px-4 py-2 text-xs ${
+              isOnHistory ? 'font-bold text-slate-900' : 'text-slate-400'
+            }`}
           >
-            {({ isActive }) => (
-              <>
-                <svg
-                  width="22"
-                  height="22"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={isActive ? 2.5 : 2}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <circle cx="12" cy="12" r="10" />
-                  <polyline points="12 6 12 12 16 14" />
-                </svg>
-                <span>History</span>
-              </>
-            )}
-          </NavLink>
+            <svg
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={isOnHistory ? 2.5 : 2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 12 12 16 14" />
+            </svg>
+            <span>History</span>
+          </Link>
+          <Link
+            to="/history?view=dashboard"
+            className={`flex flex-col items-center gap-0.5 px-4 py-2 text-xs ${
+              isOnDashboard ? 'font-bold text-slate-900' : 'text-slate-400'
+            }`}
+          >
+            <svg
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={isOnDashboard ? 2.5 : 2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="3" y="3" width="7" height="7" rx="1.5" />
+              <rect x="14" y="3" width="7" height="7" rx="1.5" />
+              <rect x="3" y="14" width="7" height="7" rx="1.5" />
+              <rect x="14" y="14" width="7" height="7" rx="1.5" />
+            </svg>
+            <span>Dashboard</span>
+          </Link>
         </nav>
       )}
     </>
