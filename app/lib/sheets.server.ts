@@ -54,7 +54,8 @@ export async function appendExpense(
     const sheets = getSheetsClient();
     await sheets.spreadsheets.values.append({
       spreadsheetId: process.env.GOOGLE_SPREADSHEET_ID,
-      range: `'${month}'!A:G`,
+      // PERBAIKAN: Ubah Range jadi A:H agar Tipe Transaksi ikut terkirim
+      range: `'${month}'!A:H`,
       valueInputOption: 'USER_ENTERED',
       insertDataOption: 'INSERT_ROWS',
       requestBody: { values: [row] }
@@ -75,7 +76,8 @@ export async function getExpensesByMonth(
     const sheets = getSheetsClient();
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.GOOGLE_SPREADSHEET_ID,
-      range: `'${month}'!A:G`
+      // PERBAIKAN: Ubah Range jadi A:H agar PWA bisa baca Tipe Transaksi
+      range: `'${month}'!A:H`
     });
     const values = res.data.values ?? [];
     const rows = values.slice(1);
