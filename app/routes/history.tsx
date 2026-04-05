@@ -55,17 +55,29 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 
   try {
-    const LIMIT = 20;
-    const rows = await getExpensesByMonth(activeMonth, LIMIT);
-    const entries: ExpenseEntry[] = rows.map((row) => ({
-      timestamp: row[0] ?? '',
-      item: row[1] ?? '',
-      category: row[2] ?? '',
-      amount: Number(row[3]) || 0,
-      method: row[4] ?? '',
-      date: row[5] ?? '',
-      source: row[6] ?? '',
-    }));
+    // PERBAIKAN 1: Hapus limit agar semua data terbaca dari baris atas sampai bawah
+    const rows = await getExpensesByMonth(activeMonth);
+    
+    const entries: ExpenseEntry[] = rows.map((row) => {
+      // PERBAIKAN 2: Cuci angka dari titik/koma (agar tidak IDR 0)
+      const amount = parseInt(String(row[3]).replace(/[^0-9]/g, ''), 10) || 0;
+      
+      // PERBAIKAN 3: Deteksi entryType dari kolom H (index 7) untuk ExpenseCard nanti
+      const sheetType = String(row[7] || "").trim();
+      const entryType = sheetType.toLowerCase() === 'pemasukan' ? 'income' : 'expense';
+
+      return {
+        timestamp: row[0] ?? '',
+        item: row[1] ?? '',
+        category: row[2] ?? '',
+        amount: amount,
+        method: row[4] ?? '',
+        date: row[5] ?? '',
+        source: row[6] ?? '',
+        entryType: entryType, // Kita sertakan entryType-nya
+      };
+    });
+    
     return data({ entries, activeMonth, months, view });
   } catch {
     return data({
